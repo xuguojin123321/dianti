@@ -1,0 +1,15 @@
+#ifndef __LED_H
+#define __LED_H	 
+#include "sys.h"
+//////////////////////////////////////////////////////////////////////////////////	 
+						  
+////////////////////////////////////////////////////////////////////////////////// 
+#define LED0 PCout(13)	// PC13
+#define LED1 PBout(6)	// PD2	
+#define TOUYINGDENG PBout(7)	// PD2
+#define HUTI PBout(5)	// PD2
+
+void LED_Init(void);//≥ı ºªØ
+
+		 				    
+#endif
