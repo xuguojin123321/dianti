@@ -6,6 +6,7 @@
 "..\obj\cjson.o"
 "..\obj\malloc.o"
 "..\obj\key.o"
+"..\obj\aes.o"
 "..\obj\delay.o"
 "..\obj\sys.o"
 "..\obj\usart.o"

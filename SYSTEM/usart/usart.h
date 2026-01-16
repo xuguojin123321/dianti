@@ -38,8 +38,8 @@ void u2_printf(char* fmt,...);
 
 
 
-#define USART3_MAX_RECV_LEN		100					//最大接收缓存字节数
-#define USART3_MAX_SEND_LEN		100					//最大发送缓存字节数
+#define USART3_MAX_RECV_LEN		256					//最大接收缓存字节数
+#define USART3_MAX_SEND_LEN		256					//最大发送缓存字节数
 #define USART3_RX_EN 			1					//0,不接收;1,接收.
 
 extern u8  USART3_RX_BUF[USART3_MAX_RECV_LEN]; 		//接收缓冲,最大USART3_MAX_RECV_LEN字节

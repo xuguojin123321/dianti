@@ -8,6 +8,10 @@
 #include "malloc.h"
 #include "key.h"
 #include "usart.h"
+#include "aes.h"
+
+//前置声明
+void u3_send_bytes(uint8_t *buf, uint16_t len);
 
 #define __floor 1 //设置楼层数，1为1楼，防止存在多个出现混乱  
 #define msg_req 1 
@@ -22,17 +26,50 @@ typedef struct{
 }pkg_date;
 
 
+unsigned char AES128key[16] = "shengxundianti";//秘钥
+unsigned char AES_IV[16]= "20260116sxdt1234";//向量表
+
+
 static int seq = 0;
 
 static char need_send = 0;//没收到回复不停的发 
 static char msg_cnt = 0;
-static pkg_date sg_date = 0;
+static pkg_date sg_date = {0};
+
+// 打印缓冲区数据的十六进制和ASCII表示
+void dump_hex(const char *tag, uint8_t *buf, int len)
+{
+	int i;
+	printf("\r\n[%s] len=%d: ", tag, len);
+	// 打印十六进制
+	for(i = 0; i < len; i++)
+		printf("%02X ", buf[i]);
+	printf("\r\n");
+	// 打印ASCII
+	printf("[%s] ASCII: ", tag);
+	for(i = 0; i < len; i++)
+	{
+		if(buf[i] >= 32 && buf[i] <= 126)
+			printf("%c", buf[i]);
+		else
+			printf(".");
+	}
+	printf("\r\n");
+}
 
 void hc13_send_date(pkg_date date)
 {
 	cJSON * usr;
 	char *data_buf;
+	uint8_t encBuf[200] = {0};
+	uint8_t frame_header[3] = {0};  // [0xAA][len_hi][len_lo]
+	uint8_t frame_tail = 0x0d;      // 帧尾
+	int plain_len = 0;
+	int aes_len  = 0;
 	usr=cJSON_CreateObject();   //创建根数据对象
+
+	mymemset(encBuf,0,sizeof(encBuf));
+	mymemset(frame_header,0,sizeof(frame_header));
 
 	if(seq > 10000)
 	{
@@ -46,10 +83,28 @@ void hc13_send_date(pkg_date date)
 	cJSON_AddNumberToObject(usr, "distance", date.distance);  //根节点下添加数字
 	data_buf = cJSON_Print(usr);   //将json形式打印成正常字符串形式(带有\r\n)
 	printf("\r\n您发送的消息为:%s\r\n",data_buf);
-	u3_printf("%s\r\n",data_buf);  
+
+	
+	plain_len = strlen((char*)data_buf);
+	aes_len = ((plain_len + 15) / 16) * 16;
+
+	aes_encrypt((const unsigned char*)data_buf, encBuf, aes_len, AES_IV);
+	
+	// 组织协议帧: [0xAA][len_hi][len_lo][encrypted_data][0x0d]
+	frame_header[0] = 0xAA;
+	frame_header[1] = (uint8_t)((aes_len >> 8) & 0xFF);
+	frame_header[2] = (uint8_t)(aes_len & 0xFF);
+	
+	u3_send_bytes(frame_header, 3);
+	u3_send_bytes(encBuf, aes_len);
+	dump_hex("send Encrypted Data", encBuf, aes_len);
+	u3_send_bytes(&frame_tail, 1);
+
 	cJSON_Delete(usr);
 	myfree(data_buf);
 }
+
+
 
 int parse_distance(const char *str)
 {
@@ -64,17 +119,48 @@ static int sleep_count  = 0;
 
 void hc13_recv_process(u8* buf,int len)//发送数据端需要处理的任务
 {
-	u16 t = 0;
 	cJSON *json,*json_vlaue;
 	pkg_date date;
+	uint8_t decBuf[200] = {0};
+	int dec_len = 0;
+	int json_len = 0;
+	int idx = 0;
 	memset(&date,0,sizeof(date));
-	
-	printf("\r\nrecv msg:%s\r\n",buf);
-	printf("%s\r\n",buf);
+	mymemset(decBuf,0,sizeof(decBuf));
 
-	json = cJSON_Parse(buf); 
+	dump_hex("Received Encrypted Data", buf, len);
+	// 解密接收到的数据
+	dec_len = ((len + 15) / 16) * 16;  // 对齐到16字节
+	aes_decrypt(buf, decBuf, dec_len, AES_IV);
+	
+	// 查找JSON结束标志 }
+	json_len = 0;
+	for(idx = 0; idx < dec_len; idx++)
+	{
+		if(decBuf[idx] == '}')
+		{
+			json_len = idx + 1;
+			break;
+		}
+	}
+	
+	if(json_len == 0)
+	{
+		printf("JSON end marker not found\r\n");
+		return;
+	}
+	
+	decBuf[json_len] = '\0';  // 在}后添加字符串结束符
+	
+	printf("\r\nrecv msg(encrypted):");
+	//dump_hex("encrypted data", buf, len);
+	printf("\r\nrecv msg(decrypted):%s\r\n",(char*)decBuf);
+	printf("%s\r\n",(char*)decBuf);
+
+	json = cJSON_Parse((const char*)decBuf); 
 	if(json == NULL)
 	{
+		printf("JSON parse failed\r\n");
 		return;
 	}
 	json_vlaue = cJSON_GetObjectItem( json , "seq" );  //从json获取键值内容
@@ -132,19 +218,13 @@ void hc13_recv_process(u8* buf,int len)//发送数据端需要处理的任务
 
 void ld2402_recv_process(u8* buf,int len)//发送数据端需要处理的任务
 {
-	u16 t = 0;
-	cJSON *json,*json_vlaue;
-	//pkg_date date;
-	static int youren_flag = 0;
-	static int wuren_flag = 0;
-	
 	int distance = 0;
 	memset(&sg_date,0,sizeof(sg_date));
 
-	printf(buf);
+	printf("%s", (char*)buf);
 
 
-	distance = parse_distance(buf);
+	distance = 100;//parse_distance((const char*)buf);
 	
 	if(sleep_count >= 1)
 	{
@@ -152,7 +232,7 @@ void ld2402_recv_process(u8* buf,int len)//发送数据端需要处理的任务
 		printf("sleeping sleep_count %d\r\n",sleep_count);
 	}
 	
-	if(strcmp(buf,"OFF") == 0 || distance > 400)
+	if(strcmp((const char*)buf,"OFF") == 0 || distance > 400)
 	{
 		no_people_count ++;
 		printf("no people count %d time %d ms\r\n",no_people_count,no_people_count*160);
@@ -199,7 +279,7 @@ void ld2402_recv_process(u8* buf,int len)//发送数据端需要处理的任务
 	u8 len;	
 	u16 times=0; 
 	u8 work_mode;//工作模式 0控制端 1干接点
-	char buff[16];
+	aes_init(AES128key);//AES初始化
 
 	delay_init();	    	 //延时函数初始化	
 	NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2);// 设置中断优先级分组2
@@ -277,7 +357,6 @@ void ld2402_recv_process(u8* buf,int len)//发送数据端需要处理的任务
 				}else{
 					//LED0= 1;
 				}
-			break;
 			break;
 		}
 

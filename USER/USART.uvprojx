@@ -339,7 +339,7 @@
               <MiscControls></MiscControls>
               <Define>STM32F10X_MD,USE_STDPERIPH_DRIVER</Define>
               <Undefine></Undefine>
-              <IncludePath>..\HARDWARE\LED;..\SYSTEM\delay;..\SYSTEM\sys;..\SYSTEM\usart;..\USER;..\STM32F10x_FWLib\inc;..\CORE;..\HARDWARE\JSON;..\HARDWARE\MALLOC;..\HARDWARE\WORKMODE;..\HARDWARE\KEY;..\SYSTEM\uart2;..\SYSTEM\uart3</IncludePath>
+              <IncludePath>..\HARDWARE\LED;..\SYSTEM\delay;..\SYSTEM\sys;..\SYSTEM\usart;..\USER;..\STM32F10x_FWLib\inc;..\CORE;..\HARDWARE\JSON;..\HARDWARE\MALLOC;..\HARDWARE\WORKMODE;..\HARDWARE\KEY;..\SYSTEM\uart2;..\SYSTEM\uart3;..\HARDWARE\AES</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -422,6 +422,11 @@
               <FileName>key.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\HARDWARE\KEY\key.c</FilePath>
+            </File>
+            <File>
+              <FileName>aes.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\HARDWARE\AES\aes.c</FilePath>
             </File>
           </Files>
         </Group>

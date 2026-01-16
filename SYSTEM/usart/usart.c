@@ -247,35 +247,89 @@ void u2_printf(char* fmt,...)
 
 
 
+// USART3 接收状态机
+// 使用状态机解析协议: [0xAA][len_hi][len_lo][encrypted_data][0x0d]
+static enum {
+    RX_WAIT_HEAD = 0,      // 等待帧头
+    RX_WAIT_LEN_H = 1,     // 等待长度高字节
+    RX_WAIT_LEN_L = 2,     // 等待长度低字节
+    RX_RECV_DATA = 3,      // 接收数据
+    RX_WAIT_TAIL = 4       // 等待帧尾
+} rx_state = RX_WAIT_HEAD;
+
+static u16 rx_len = 0;     // 数据长度
+static u16 rx_cnt = 0;     // 已接收数据计数
+static u8 in_frame = 0;    // 正在接收帧标志
+
 void USART3_IRQHandler(void)
 {
 	u8 Res;
-	if(USART_GetITStatus(USART3, USART_IT_RXNE) != RESET)  //接收中断(接收到的数据必须是0x0d 0x0a结尾)
+	if(USART_GetITStatus(USART3, USART_IT_RXNE) != RESET)
+    {
+		Res = USART_ReceiveData(USART3);
+		
+		// 如果已有完整帧等待处理，拒绝新数据
+		if((USART3_RX_STA & 0x8000) != 0)
+			return;
+		
+		switch(rx_state)
 		{
-			Res =USART_ReceiveData(USART3);	//读取接收到的数据
-			
-			if((USART3_RX_STA&0x8000)==0)//接收未完成
+			case RX_WAIT_HEAD:
+				if(Res == 0xAA)
 				{
-				if(USART3_RX_STA&0x4000)//接收到了0x0d
-					{
-						if(Res!=0x0a)USART3_RX_STA=0;//接收错误,重新开始
-						else USART3_RX_STA|=0x8000;	//接收完成了 
-					}
-				else //还没收到0X0D
-					{	
-						if(Res==0x0d)USART3_RX_STA|=0x4000;
-						else
-							{
-								USART3_RX_BUF[USART3_RX_STA&0X3FFF]=Res ;
-								USART3_RX_STA++;
-								if(USART3_RX_STA>(USART3_MAX_RECV_LEN-1))USART3_RX_STA=0;//接收数据错误,重新开始接收	  
-							}		 
-					}
-				}   		 
-		} 				 											 
-}   
-
-
+					rx_state = RX_WAIT_LEN_H;
+					in_frame = 1;
+				}
+				break;
+				
+			case RX_WAIT_LEN_H:
+				rx_len = (u16)Res << 8;
+				rx_state = RX_WAIT_LEN_L;
+				break;
+				
+			case RX_WAIT_LEN_L:
+				rx_len |= Res;
+				if(rx_len == 0 || rx_len > (USART3_MAX_RECV_LEN - 3))
+				{
+					// 无效长度，重新开始
+					rx_state = RX_WAIT_HEAD;
+					in_frame = 0;
+				}
+				else
+				{
+					rx_cnt = 0;
+					rx_state = RX_RECV_DATA;
+				}
+				break;
+				
+			case RX_RECV_DATA:
+				USART3_RX_BUF[rx_cnt++] = Res;
+				if(rx_cnt >= rx_len)
+					rx_state = RX_WAIT_TAIL;
+				break;
+				
+			case RX_WAIT_TAIL:
+				if(Res == 0x0d)
+				{
+					// 帧接收完成
+					USART3_RX_STA = (0x8000 | rx_len);
+					rx_state = RX_WAIT_HEAD;
+					in_frame = 0;
+				}
+				else
+				{
+					// 帧尾错误，重新开始
+					rx_state = RX_WAIT_HEAD;
+					in_frame = 0;
+				}
+				break;
+				
+			default:
+				rx_state = RX_WAIT_HEAD;
+				in_frame = 0;
+		}
+	}
+}
 //初始化IO 串口2
 //pclk1:PCLK1时钟频率(Mhz)
 //bound:波特率	  
@@ -342,7 +396,14 @@ void u3_printf(char* fmt,...)
 	} 
 }
 
- 
+void u3_send_bytes(uint8_t *buf, uint16_t len)
+{
+	uint16_t i= 0;
+    for (i = 0; i < len; i++) {
+        while (USART_GetFlagStatus(USART3, USART_FLAG_TXE) == RESET);
+        USART_SendData(USART3, buf[i]);
+    }
+}
 
 #endif	
 
